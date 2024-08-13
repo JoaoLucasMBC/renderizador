@@ -65,12 +65,46 @@ class GL:
 
         print("Polyline2D : lineSegments = {0}".format(lineSegments)) # imprime no terminal
         print("Polyline2D : colors = {0}".format(colors)) # imprime no terminal as cores
+
+        color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
         
-        # Exemplo:
-        pos_x = GL.width//2
-        pos_y = GL.height//2
-        gpu.GPU.draw_pixel([pos_x, pos_y], gpu.GPU.RGB8, [255, 0, 255])  # altera pixel (u, v, tipo, r, g, b)
-        # cuidado com as cores, o X3D especifica de (0,1) e o Framebuffer de (0,255)
+        for i in range(0, len(lineSegments), 4):
+            x1, y1 = lineSegments[i], lineSegments[i + 1]
+            x2, y2 = lineSegments[i + 2], lineSegments[i + 3]
+
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+
+            slope_x = 1 if x2 > x1 else -1
+            slope_y = 1 if y2 > y1 else -1
+            
+            if dx > dy:
+                slope = dy/dx if dx != 0 else 1
+                err = 0
+                while int(x1) != int(x2):
+                    gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
+                    err += slope
+
+                    if err >= 1:
+                        err -= 1
+                        y1 += slope_y
+                    
+                    x1 += slope_x
+            else:
+                slope = dx/dy if dy != 0 else 1
+                err = 0
+                while int(y1) != int(y2):
+                    gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
+                    err += slope
+
+                    if err > 1:
+                        err -= 1
+                        x1 += slope_x
+                    
+                    y1 += slope_y
+
+            gpu.GPU.draw_pixel([int(x2), int(y2)], gpu.GPU.RGB8, color)
+
 
     @staticmethod
     def circle2D(radius, colors):
