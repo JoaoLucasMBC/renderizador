@@ -43,15 +43,12 @@ class GL:
         # O parâmetro colors é um dicionário com os tipos cores possíveis, para o Polypoint2D
         # você pode assumir inicialmente o desenho dos pontos com a cor emissiva (emissiveColor).
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Polypoint2D : pontos = {0}".format(point)) # imprime no terminal pontos
-        print("Polypoint2D : colors = {0}".format(colors)) # imprime no terminal as cores
+        for i in range(0, len(point), 2):
+            pos_x = int(point[i])
+            pos_y = int(point[i + 1])
+            color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
+            gpu.GPU.draw_pixel([pos_x, pos_y], gpu.GPU.RGB8, color)
 
-        # Exemplo:
-        pos_x = GL.width//2
-        pos_y = GL.height//2
-        gpu.GPU.draw_pixel([pos_x, pos_y], gpu.GPU.RGB8, [255, 0, 0])  # altera pixel (u, v, tipo, r, g, b)
-        # cuidado com as cores, o X3D especifica de (0,1) e o Framebuffer de (0,255)
         
     @staticmethod
     def polyline2D(lineSegments, colors):
