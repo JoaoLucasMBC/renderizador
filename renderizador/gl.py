@@ -134,12 +134,35 @@ class GL:
         # quantidade de pontos é sempre multiplo de 3, ou seja, 6 valores ou 12 valores, etc.
         # O parâmetro colors é um dicionário com os tipos cores possíveis, para o TriangleSet2D
         # você pode assumir inicialmente o desenho das linhas com a cor emissiva (emissiveColor).
-        print("TriangleSet2D : vertices = {0}".format(vertices)) # imprime no terminal
-        print("TriangleSet2D : colors = {0}".format(colors)) # imprime no terminal as cores
 
-        # Exemplo:
-        gpu.GPU.draw_pixel([6, 8], gpu.GPU.RGB8, [255, 255, 0])  # altera pixel (u, v, tipo, r, g, b)
+        color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
 
+        # For each triangle
+        for i in range(0, len(vertices), 6):
+            x1, y1, x2, y2, x3, y3 = vertices[i:i+6]
+            
+            # Creates the box around 
+            for x in range(int(min([x1, x2, x3])), int(max([x1, x2, x3])) + 1):
+                for y in range(int(min([y1, y2, y3])), int(max([y1, y2, y3])) + 1):
+                    if GL._inside(
+                        [x1, y1, x2, y2, x3, y3],
+                        x + 0.5,
+                        y + 0.5
+                    ):
+                        gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
+    
+    @staticmethod
+    def _inside(vertices, x, y):
+        def L(x, y, x0, y0, x1, y1):
+            return (x - x0)*(y1 - y0) - (y - y0)*(x1 - x0) >= 0
+
+        return L(x, y, vertices[0], vertices[1], vertices[2], vertices[3]) and \
+                L(x, y, vertices[2], vertices[3], vertices[4], vertices[5]) and \
+                L(x, y, vertices[4], vertices[5], vertices[0], vertices[1])
+
+
+
+        
 
     @staticmethod
     def triangleSet(point, colors):
