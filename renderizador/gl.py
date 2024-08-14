@@ -46,8 +46,10 @@ class GL:
         for i in range(0, len(point), 2):
             pos_x = int(point[i])
             pos_y = int(point[i + 1])
-            color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
-            gpu.GPU.draw_pixel([pos_x, pos_y], gpu.GPU.RGB8, color)
+
+            if pos_x >= 0 and pos_x < GL.width and pos_y >= 0 and pos_y < GL.height:
+                color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
+                gpu.GPU.draw_pixel([pos_x, pos_y], gpu.GPU.RGB8, color)
 
         
     @staticmethod
@@ -63,12 +65,9 @@ class GL:
         # O parâmetro colors é um dicionário com os tipos cores possíveis, para o Polyline2D
         # você pode assumir inicialmente o desenho das linhas com a cor emissiva (emissiveColor).
 
-        print("Polyline2D : lineSegments = {0}".format(lineSegments)) # imprime no terminal
-        print("Polyline2D : colors = {0}".format(colors)) # imprime no terminal as cores
-
         color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
         
-        for i in range(0, len(lineSegments), 4):
+        for i in range(0, len(lineSegments) - 2, 2):
             x1, y1 = lineSegments[i], lineSegments[i + 1]
             x2, y2 = lineSegments[i + 2], lineSegments[i + 3]
 
@@ -82,7 +81,9 @@ class GL:
                 slope = dy/dx if dx != 0 else 1
                 err = 0
                 while int(x1) != int(x2):
-                    gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
+                    if x1 >= 0 and x1 < GL.width and y1 >= 0 and y1 < GL.height:
+                        gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
+                    
                     err += slope
 
                     if err >= 1:
@@ -94,7 +95,9 @@ class GL:
                 slope = dx/dy if dy != 0 else 1
                 err = 0
                 while int(y1) != int(y2):
-                    gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
+                    if x1 >= 0 and x1 < GL.width and y1 >= 0 and y1 < GL.height:
+                        gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
+
                     err += slope
 
                     if err > 1:
@@ -103,7 +106,8 @@ class GL:
                     
                     y1 += slope_y
 
-            gpu.GPU.draw_pixel([int(x2), int(y2)], gpu.GPU.RGB8, color)
+            if x2 >= 0 and x2 < GL.width and y2 >= 0 and y2 < GL.height:
+                gpu.GPU.draw_pixel([int(x2), int(y2)], gpu.GPU.RGB8, color)
 
 
     @staticmethod
@@ -148,7 +152,7 @@ class GL:
                         [x1, y1, x2, y2, x3, y3],
                         x + 0.5,
                         y + 0.5
-                    ):
+                    ) and x >= 0 and x < GL.width and y >= 0 and y < GL.height:
                         gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
     
     @staticmethod
@@ -159,7 +163,6 @@ class GL:
         return L(x, y, vertices[0], vertices[1], vertices[2], vertices[3]) and \
                 L(x, y, vertices[2], vertices[3], vertices[4], vertices[5]) and \
                 L(x, y, vertices[4], vertices[5], vertices[0], vertices[1])
-
 
 
         
