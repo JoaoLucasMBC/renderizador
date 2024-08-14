@@ -43,10 +43,12 @@ class GL:
         # O parâmetro colors é um dicionário com os tipos cores possíveis, para o Polypoint2D
         # você pode assumir inicialmente o desenho dos pontos com a cor emissiva (emissiveColor).
 
+        # Para cada um dos pontos, o desenha na tela
         for i in range(0, len(point), 2):
             pos_x = int(point[i])
             pos_y = int(point[i + 1])
 
+            # Checando se não está tentando desenhar fora da tela
             if pos_x >= 0 and pos_x < GL.width and pos_y >= 0 and pos_y < GL.height:
                 color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
                 gpu.GPU.draw_pixel([pos_x, pos_y], gpu.GPU.RGB8, color)
@@ -67,45 +69,66 @@ class GL:
 
         color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
         
+        # Pega sempre o ponto atual e proximo
         for i in range(0, len(lineSegments) - 2, 2):
             x1, y1 = lineSegments[i], lineSegments[i + 1]
             x2, y2 = lineSegments[i + 2], lineSegments[i + 3]
-
-            dx = abs(x2 - x1)
+            
+            # Usa as diferencas entre os x e os y para saber quem está crescendo mais,
+            # o que determina quem "manda" no algoritmo
+            dx = abs(x2 - x1) 
             dy = abs(y2 - y1)
 
+            # Determina se é crescente ou decresente em cada coordenada
             slope_x = 1 if x2 > x1 else -1
             slope_y = 1 if y2 > y1 else -1
             
+            # Caso onde o x cresce mais
             if dx > dy:
+                # Calcula o coef ang da reta. Caso seja uma reta vertical, o coef eh 1
+                # para pintar todos os pixels entre os dois valores de y 
                 slope = dy/dx if dx != 0 else 1
                 err = 0
+
+                # Enquanto nao cheguei no ultimo ponto
                 while int(x1) != int(x2):
+                    # Pinta apenas se estiver dentro da tela
                     if x1 >= 0 and x1 < GL.width and y1 >= 0 and y1 < GL.height:
                         gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
                     
+                    # Incrementa o erro pelo coef ang
                     err += slope
+                    
+                    # Se o erro passa do tamanho de meio pixel, eu incremento o y e ajusto o erro
+                    # O valor de 0.5 foi escolhido para deixar mais smooth e evitar desalinhamentos
+                    # Foi testado comparar com 1, mas as retas resultantes não eram bem alinhadas,
+                    # especialmente para o octogono
 
-                    if err >= 1:
+                    if err >= 0.5:
                         err -= 1
                         y1 += slope_y
                     
                     x1 += slope_x
+            # Caso onde o y cresce mais
             else:
+                # O coef eh "invertido" pois é como se rotacionasse a tela e seguisse o mesmo procedimento
                 slope = dx/dy if dy != 0 else 1
                 err = 0
+
                 while int(y1) != int(y2):
                     if x1 >= 0 and x1 < GL.width and y1 >= 0 and y1 < GL.height:
                         gpu.GPU.draw_pixel([int(x1), int(y1)], gpu.GPU.RGB8, color)
 
                     err += slope
 
-                    if err > 1:
+                    # Se o erro passa do tamanho de meio pixel, incremento o x e ajusto o erro
+                    if err > 0.5:
                         err -= 1
                         x1 += slope_x
                     
                     y1 += slope_y
 
+            # Pinta o ponto final
             if x2 >= 0 and x2 < GL.width and y2 >= 0 and y2 < GL.height:
                 gpu.GPU.draw_pixel([int(x2), int(y2)], gpu.GPU.RGB8, color)
 
@@ -141,13 +164,17 @@ class GL:
 
         color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
 
-        # For each triangle
+        # Para cada um dos triangulos
         for i in range(0, len(vertices), 6):
+            # Separa os vertices
             x1, y1, x2, y2, x3, y3 = vertices[i:i+6]
             
-            # Creates the box around 
+            # Cria a otimizacao da caixa ao redor dos vertices 
             for x in range(int(min([x1, x2, x3])), int(max([x1, x2, x3])) + 1):
                 for y in range(int(min([y1, y2, y3])), int(max([y1, y2, y3])) + 1):
+
+                    # Por todos os pixels, apenas o desenha se estiver dentro da tela e se o centro do pixel obedecer
+                    # a formula da reta normal
                     if GL._inside(
                         [x1, y1, x2, y2, x3, y3],
                         x + 0.5,
@@ -157,9 +184,13 @@ class GL:
     
     @staticmethod
     def _inside(vertices, x, y):
+        """Função auxiliar para verificar se um ponto está "dentro de um lado" do triângulo."""
+        
+        # Formula da reta normal
         def L(x, y, x0, y0, x1, y1):
             return (x - x0)*(y1 - y0) - (y - y0)*(x1 - x0) >= 0
 
+        # Se esta para todos os lados, podemos desenhar na tela
         return L(x, y, vertices[0], vertices[1], vertices[2], vertices[3]) and \
                 L(x, y, vertices[2], vertices[3], vertices[4], vertices[5]) and \
                 L(x, y, vertices[4], vertices[5], vertices[0], vertices[1])
