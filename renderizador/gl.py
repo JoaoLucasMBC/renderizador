@@ -143,12 +143,15 @@ class GL:
 
         print("Circle2D : radius = {0}".format(radius)) # imprime no terminal
         print("Circle2D : colors = {0}".format(colors)) # imprime no terminal as cores
-        
-        # Exemplo:
-        pos_x = GL.width//2
-        pos_y = GL.height//2
-        gpu.GPU.draw_pixel([pos_x, pos_y], gpu.GPU.RGB8, [255, 0, 255])  # altera pixel (u, v, tipo, r, g, b)
-        # cuidado com as cores, o X3D especifica de (0,1) e o Framebuffer de (0,255)
+
+        color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
+
+        for x in range(0, round(radius) + 1):
+            for y in range(0, round(radius) + 1):
+                print(x, y)
+                if radius**2 - 20 <= x**2 + y**2 <= radius**2 + 20 \
+                    and x >= 0 and x < GL.width and y >= 0 and y < GL.height:
+                    gpu.GPU.draw_pixel([x, y], gpu.GPU.RGB8, color)
 
 
     @staticmethod
