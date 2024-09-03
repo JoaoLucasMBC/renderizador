@@ -31,6 +31,9 @@ class GL:
         GL.height = height
         GL.near = near
         GL.far = far
+        GL.viewpoint_matrix = np.identity(4)
+        GL.perspective_matrix = np.identity(4)
+        GL.transformation_matrix = np.identity(4)
 
     @staticmethod
     def polypoint2D(point, colors):
@@ -221,8 +224,39 @@ class GL:
         print("TriangleSet : pontos = {0}".format(point)) # imprime no terminal pontos
         print("TriangleSet : colors = {0}".format(colors)) # imprime no terminal as cores
 
-        # Exemplo de desenho de um pixel branco na coordenada 10, 10
-        gpu.GPU.draw_pixel([10, 10], gpu.GPU.RGB8, [255, 255, 255])  # altera pixel
+        vertices = []
+
+        # Para cada um dos triangulos
+        for i in range(0, len(point), 9):
+            # Separa os vertices
+            x1, y1, z1, x2, y2, z2, x3, y3, z3 = point[i:i+9]
+
+            triangle = np.array([
+                [x1, x2, x3],
+                [y1, y2, y3],
+                [z1, z2, z3],
+                [1, 1, 1]
+            ])
+
+            triangle = GL.perspective_matrix @ GL.viewpoint_matrix @ GL.transformation_matrix @ triangle
+
+            # Normalizando a coordenada homogenea
+            triangle = triangle / triangle[3][0]
+
+            mapping_matrix = np.array([
+                [GL.width/2, 0, 0, GL.width/2],
+                [0, -GL.height/2, 0, GL.height/2],
+                [0, 0, 1, 0],
+                [0, 0, 0 ,1]
+            ])
+
+            final_triangle = mapping_matrix @ triangle
+
+            vertices.extend(final_triangle[0:2,:].T.flatten())
+        
+        GL.triangleSet2D(vertices, colors)
+
+        
 
     @staticmethod
     def viewpoint(position, orientation, fieldOfView):
@@ -237,6 +271,51 @@ class GL:
         print("orientation = {0} ".format(orientation), end='')
         print("fieldOfView = {0} ".format(fieldOfView))
 
+
+        # Calculating the camera matrices
+        ax, ay, az, theta = orientation
+        R = np.linalg.inv(GL._quaternion_rotation(theta, [ax, ay, az]))
+        T = np.array([
+            [1, 0, 0, -position[0]],
+            [0, 1, 0, -position[1]],
+            [0, 0, 1, -position[2]],
+            [0, 0, 0, 1]
+        ])
+
+        GL.viewpoint_matrix = R @ T
+
+        # Calculating the perspective matrix
+        fov_y = 2 * np.arctan(np.tan(fieldOfView/2) * GL.height/np.sqrt(GL.height**2 + GL.width**2))
+
+        aspect = GL.width / GL.height
+        top = GL.near * np.tan(fov_y)
+        right = top * aspect
+
+        P = np.array([
+            [GL.near/right, 0, 0, 0],
+            [0, GL.near/top, 0, 0],
+            [0, 0, -(GL.far+GL.near)/(GL.far-GL.near), -2*GL.far*GL.near/(GL.far-GL.near)],
+            [0, 0, -1, 0]
+        ])
+
+        GL.perspective_matrix = P
+    
+    @staticmethod
+    def _quaternion_rotation(theta, u):
+        qr = np.cos(theta/2)
+        qx = np.sin(theta/2) * u[0]
+        qy = np.sin(theta/2) * u[1]
+        qz = np.sin(theta/2) * u[2]
+
+        R = np.array([
+            [1 - 2*(qy**2 + qz**2), 2 * (qx*qy - qz*qr), 2*(qx*qz + qy*qr), 0],
+            [2*(qx*qy + qz*qr), 1 - 2*(qx**2 + qz**2), 2*(qy*qz - qx*qr), 0],
+            [2*(qx*qz - qy*qr), 2 * (qy*qz + qx*qr), 1 - 2*(qx**2 + qy**2), 0],
+            [0, 0, 0, 1]
+        ])
+
+        return R
+
     @staticmethod
     def transform_in(translation, scale, rotation):
         """Função usada para renderizar (na verdade coletar os dados) de Transform."""
@@ -250,13 +329,31 @@ class GL:
 
         # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
         print("Transform : ", end='')
+
+        T, S, R = np.identity(4), np.identity(4), np.identity(4)        
+
         if translation:
             print("translation = {0} ".format(translation), end='') # imprime no terminal
+            T = np.array([
+                [1, 0, 0, translation[0]],
+                [0, 1, 0, translation[1]],
+                [0, 0, 1, translation[2]],
+                [0, 0, 0, 1]
+            ])
         if scale:
             print("scale = {0} ".format(scale), end='') # imprime no terminal
+            S = np.array([
+                [scale[0], 0, 0, 0],
+                [0, scale[1], 0, 0],
+                [0, 0, scale[2], 0],
+                [0, 0, 0, 1]
+            ])
         if rotation:
             print("rotation = {0} ".format(rotation), end='') # imprime no terminal
+            R = GL._quaternion_rotation(rotation[3], [rotation[0], rotation[1], rotation[2]])
         print("")
+
+        GL.transformation_matrix = T @ R @ S
 
     @staticmethod
     def transform_out():
