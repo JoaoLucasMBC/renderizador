@@ -33,7 +33,7 @@ class GL:
         GL.far = far
         GL.viewpoint_matrix = np.identity(4)
         GL.perspective_matrix = np.identity(4)
-        GL.transformation_matrix = np.identity(4)
+        GL.transformation_stack = [np.identity(4)]
 
     @staticmethod
     def polypoint2D(point, colors):
@@ -147,9 +147,6 @@ class GL:
         # O parâmetro colors é um dicionário com os tipos cores possíveis, para o Circle2D
         # você pode assumir o desenho das linhas com a cor emissiva (emissiveColor).
 
-        print("Circle2D : radius = {0}".format(radius)) # imprime no terminal
-        print("Circle2D : colors = {0}".format(colors)) # imprime no terminal as cores
-
         color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
 
         for x in range(0, round(radius) + 1):
@@ -225,10 +222,6 @@ class GL:
         # (emissiveColor), conforme implementar novos materias você deverá suportar outros
         # tipos de cores.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("TriangleSet : pontos = {0}".format(point)) # imprime no terminal pontos
-        print("TriangleSet : colors = {0}".format(colors)) # imprime no terminal as cores
-
         vertices = []
 
         # Para cada um dos triangulos
@@ -243,10 +236,10 @@ class GL:
                 [1, 1, 1]
             ])
 
-            triangle = GL.perspective_matrix @ GL.viewpoint_matrix @ GL.transformation_matrix @ triangle
+            triangle = GL.perspective_matrix @ GL.viewpoint_matrix @ GL.transformation_stack[-1] @ triangle
 
             # Normalizando a coordenada homogenea
-            triangle = triangle / triangle[3][0]
+            triangle = triangle / triangle[3, :]
 
             mapping_matrix = np.array([
                 [GL.width/2, 0, 0, GL.width/2],
@@ -269,13 +262,6 @@ class GL:
         # Na função de viewpoint você receberá a posição, orientação e campo de visão da
         # câmera virtual. Use esses dados para poder calcular e criar a matriz de projeção
         # perspectiva para poder aplicar nos pontos dos objetos geométricos.
-
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Viewpoint : ", end='')
-        print("position = {0} ".format(position), end='')
-        print("orientation = {0} ".format(orientation), end='')
-        print("fieldOfView = {0} ".format(fieldOfView))
-
 
         # Calculating the camera matrices
         ax, ay, az, theta = orientation
@@ -334,13 +320,9 @@ class GL:
         # Quando começar a usar Transforms dentre de outros Transforms, mais a frente no curso
         # Você precisará usar alguma estrutura de dados pilha para organizar as matrizes.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Transform : ", end='')
-
         T, S, R = np.identity(4), np.identity(4), np.identity(4)        
 
         if translation:
-            print("translation = {0} ".format(translation), end='') # imprime no terminal
             T = np.array([
                 [1, 0, 0, translation[0]],
                 [0, 1, 0, translation[1]],
@@ -348,7 +330,6 @@ class GL:
                 [0, 0, 0, 1]
             ])
         if scale:
-            print("scale = {0} ".format(scale), end='') # imprime no terminal
             S = np.array([
                 [scale[0], 0, 0, 0],
                 [0, scale[1], 0, 0],
@@ -356,11 +337,11 @@ class GL:
                 [0, 0, 0, 1]
             ])
         if rotation:
-            print("rotation = {0} ".format(rotation), end='') # imprime no terminal
             R = GL._quaternion_rotation(rotation[3], [rotation[0], rotation[1], rotation[2]])
-        print("")
 
-        GL.transformation_matrix = T @ R @ S
+        transformation_matrix = T @ R @ S
+
+        GL.transformation_stack.append(GL.transformation_stack[-1] @ transformation_matrix)
 
     @staticmethod
     def transform_out():
@@ -370,8 +351,8 @@ class GL:
         # deverá recuperar a matriz de transformação dos modelos do mundo da estrutura de
         # pilha implementada.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Saindo de Transform")
+        if GL.transformation_stack:
+            GL.transformation_stack.pop()
 
     @staticmethod
     def triangleStripSet(point, stripCount, colors):
@@ -387,16 +368,26 @@ class GL:
         # primeiro triângulo será com os vértices 0, 1 e 2, depois serão os vértices 1, 2 e 3,
         # depois 2, 3 e 4, e assim por diante. Cuidado com a orientação dos vértices, ou seja,
         # todos no sentido horário ou todos no sentido anti-horário, conforme especificado.
-
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("TriangleStripSet : pontos = {0} ".format(point), end='')
+        
+        idx = 0
+        vertices = []
         for i, strip in enumerate(stripCount):
-            print("strip[{0}] = {1} ".format(i, strip), end='')
-        print("")
-        print("TriangleStripSet : colors = {0}".format(colors)) # imprime no terminal as cores
+            strip_points = point[idx:idx + strip*3]
+            idx += strip * 3
 
-        # Exemplo de desenho de um pixel branco na coordenada 10, 10
-        gpu.GPU.draw_pixel([10, 10], gpu.GPU.RGB8, [255, 255, 255])  # altera pixel
+            # Process every triangle in the strip
+            for j in range(0, len(strip_points) - 6, 3):
+                # For odd-indexed triangles, reverse the last two vertices
+                if (j // 3) % 2 == 1:
+                    vertices.extend([
+                        strip_points[j], strip_points[j + 1], strip_points[j + 2],
+                        strip_points[j + 6], strip_points[j + 7], strip_points[j + 8],  
+                        strip_points[j + 3], strip_points[j + 4], strip_points[j + 5] 
+                    ])
+                else:
+                    vertices.extend(strip_points[j:j + 9])
+
+        GL.triangleSet(vertices, colors)
 
     @staticmethod
     def indexedTriangleStripSet(point, index, colors):
@@ -414,13 +405,28 @@ class GL:
         # depois 2, 3 e 4, e assim por diante. Cuidado com a orientação dos vértices, ou seja,
         # todos no sentido horário ou todos no sentido anti-horário, conforme especificado.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("IndexedTriangleStripSet : pontos = {0}, index = {1}".format(point, index))
-        print("IndexedTriangleStripSet : colors = {0}".format(colors)) # imprime as cores
+        vertices = []
+        for i in range(len(index)):
+            # End of strip
+            if -1 in index[i:i+3]:
+                continue
+                
+            v0, v1, v2 = index[i], index[i + 1], index[i + 2]
+            
+            # Switching orientation for every 2 triangles
+            if i % 2 == 1:
+                v0, v1, v2 = v1, v0, v2
 
-        # Exemplo de desenho de um pixel branco na coordenada 10, 10
-        gpu.GPU.draw_pixel([10, 10], gpu.GPU.RGB8, [255, 255, 255])  # altera pixel
+            # Extract vertex coordinates
+            triangle = []
+            triangle.extend(point[v0*3:v0*3+3])
+            triangle.extend(point[v1*3:v1*3+3])
+            triangle.extend(point[v2*3:v2*3+3])
 
+            vertices.extend(triangle)
+        
+        GL.triangleSet(vertices, colors)  
+        
     @staticmethod
     def indexedFaceSet(coord, coordIndex, colorPerVertex, color, colorIndex,
                        texCoord, texCoordIndex, colors, current_texture):
