@@ -466,8 +466,24 @@ class GL:
             print("\t Dimensões da image = {0}".format(image.shape))
         print("IndexedFaceSet : colors = {0}".format(colors))  # imprime no terminal as cores
 
-        # Exemplo de desenho de um pixel branco na coordenada 10, 10
-        gpu.GPU.draw_pixel([10, 10], gpu.GPU.RGB8, [255, 255, 255])  # altera pixel
+        vertices = []
+        v0 = coordIndex[0]
+        i = 1
+        while i < len(coordIndex):
+            # Add the coordintes of the three points
+            vertices.extend(coord[v0*3:v0*3+3])
+            vertices.extend(coord[coordIndex[i]*3:coordIndex[i]*3+3])
+            vertices.extend(coord[coordIndex[i+1]*3:coordIndex[i+1]*3+3])
+
+            if coordIndex[i+2] == -1:
+                i += 3
+                if i >= len(coordIndex):
+                    break
+                v0 = coordIndex[i]
+            else:
+                i += 1
+
+        GL.triangleSet(vertices, colors)
 
     @staticmethod
     def box(size, colors):
