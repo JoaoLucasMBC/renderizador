@@ -23,7 +23,7 @@ class GL:
     height = 600  # altura da tela
     near = 0.01   # plano de corte próximo
     far = 1000    # plano de corte distante
-    sampling = 2
+    sampling = 4
 
     @staticmethod
     def setup(width, height, near=0.01, far=1000):
@@ -40,7 +40,7 @@ class GL:
 
         GL.sample_frame_buffer = np.zeros((GL.sampling * GL.height, GL.sampling * GL.width, 3), dtype=np.uint8)
         
-        GL.z_buffer = np.full((GL.height, GL.width), 1)
+        GL.z_buffer = np.full((GL.height * GL.sampling, GL.width * GL.sampling), np.inf)
 
     @staticmethod
     def polypoint2D(point, colors):
@@ -195,27 +195,30 @@ class GL:
                         x + 0.5,
                         y + 0.5
                     ) and x >= 0 and x < width_sampling and y >= 0 and y < height_sampling:
-                        if color is not None:
-                            GL.sample_frame_buffer[y, x] = color
-                            #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
-                        else:
-                            # Interpolacao baricentrica
-                            alpha, beta, gamma = GL._barycentric([x1, y1, x2, y2, x3, y3], [x + 0.5, y + 0.5])
-                            rgb1, rgb2, rgb3 = vertexColors[i], vertexColors[i+1], vertexColors[i+2]
+                        # Interpolacao baricentrica
+                        alpha, beta, gamma = GL._barycentric([x1, y1, x2, y2, x3, y3], [x + 0.5, y + 0.5])
 
-                            # Interpolação para descobrir o Z do ponto
-                            z = 1/(alpha/z1 + beta/z2 + gamma/z3)
-                                                        
-                            r = (alpha * rgb1[0] / z1 + beta * rgb2[0] / z2 + gamma * rgb3[0] / z3) * z
-                            g = (alpha * rgb1[1] / z1 + beta * rgb2[1] / z2 + gamma * rgb3[1] / z3) * z
-                            b = (alpha * rgb1[2] / z1 + beta * rgb2[2] / z2 + gamma * rgb3[2] / z3) * z
+                        # Interpolação para descobrir o Z do ponto
+                        z = 1/(alpha/z1 + beta/z2 + gamma/z3)
 
-                            pointColor = [int(r * 255),
-                                        int(g * 255),
-                                        int(b * 255)]
+                        if GL.z_buffer[y, x] > z:
+                            GL.z_buffer[y, x] = z
+                            if color is not None:
+                                GL.sample_frame_buffer[y, x] = color
+                                #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
+                            else:
+                                rgb1, rgb2, rgb3 = vertexColors[i], vertexColors[i+1], vertexColors[i+2]
+                                                            
+                                r = (alpha * rgb1[0] / z1 + beta * rgb2[0] / z2 + gamma * rgb3[0] / z3) * z
+                                g = (alpha * rgb1[1] / z1 + beta * rgb2[1] / z2 + gamma * rgb3[1] / z3) * z
+                                b = (alpha * rgb1[2] / z1 + beta * rgb2[2] / z2 + gamma * rgb3[2] / z3) * z
 
-                            GL.sample_frame_buffer[y, x] = pointColor
-                            #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, pointColor)
+                                pointColor = [int(r * 255),
+                                            int(g * 255),
+                                            int(b * 255)]
+
+                                GL.sample_frame_buffer[y, x] = pointColor
+                                #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, pointColor)
             
         GL._drawPixels(width, height, sampling)
     
