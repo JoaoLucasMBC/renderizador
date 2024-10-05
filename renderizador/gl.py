@@ -23,6 +23,7 @@ class GL:
     height = 600  # altura da tela
     near = 0.01   # plano de corte próximo
     far = 1000    # plano de corte distante
+    sampling = 2
 
     @staticmethod
     def setup(width, height, near=0.01, far=1000):
@@ -31,9 +32,15 @@ class GL:
         GL.height = height
         GL.near = near
         GL.far = far
+        
         GL.viewpoint_matrix = np.identity(4)
         GL.perspective_matrix = np.identity(4)
+        
         GL.transformation_stack = [np.identity(4)]
+
+        GL.sample_frame_buffer = np.zeros((GL.sampling * GL.height, GL.sampling * GL.width, 3), dtype=np.uint8)
+        
+        GL.z_buffer = np.full((GL.height, GL.width), 1)
 
     @staticmethod
     def polypoint2D(point, colors):
@@ -158,37 +165,79 @@ class GL:
 
 
     @staticmethod
-    def triangleSet2D(vertices, colors):
-        """Função usada para renderizar TriangleSet2D."""
-        # https://www.web3d.org/specifications/X3Dv4/ISO-IEC19775-1v4-IS/Part01/components/geometry2D.html#TriangleSet2D
-        # Nessa função você receberá os vertices de um triângulo no parâmetro vertices,
-        # esses pontos são uma lista de pontos x, y sempre na ordem. Assim point[0] é o
-        # valor da coordenada x do primeiro ponto, point[1] o valor y do primeiro ponto.
-        # Já point[2] é a coordenada x do segundo ponto e assim por diante. Assuma que a
-        # quantidade de pontos é sempre multiplo de 3, ou seja, 6 valores ou 12 valores, etc.
-        # O parâmetro colors é um dicionário com os tipos cores possíveis, para o TriangleSet2D
-        # você pode assumir inicialmente o desenho das linhas com a cor emissiva (emissiveColor).
+    def _drawTriangles(points, colors=None, colorPerVertex=False, vertexColors=None):
+        # Configs
+        width = GL.width
+        height = GL.height
+        sampling = GL.sampling
+        width_sampling = width * sampling
+        height_sampling = height * sampling
 
-        color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
+        if not colorPerVertex:
+            color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
+        else:
+            color = None
 
-        # Para cada um dos triangulos
-        for i in range(0, len(vertices), 6):
+        for i in range(0, len(points), 3):
             # Separa os vertices
-            x1, y1, x2, y2, x3, y3 = vertices[i:i+6]
+            p1, p2, p3 = points[i:i+3]
+            x1, y1, z1 = p1
+            x2, y2, z2 = p2
+            x3, y3, z3 = p3
             
             # Cria a otimizacao da caixa ao redor dos vertices 
             for x in range(int(min([x1, x2, x3])), int(max([x1, x2, x3])) + 1):
                 for y in range(int(min([y1, y2, y3])), int(max([y1, y2, y3])) + 1):
-
                     # Por todos os pixels, apenas o desenha se estiver dentro da tela e se o centro do pixel obedecer
                     # a formula da reta normal
                     if GL._inside(
                         [x1, y1, x2, y2, x3, y3],
                         x + 0.5,
                         y + 0.5
-                    ) and x >= 0 and x < GL.width and y >= 0 and y < GL.height:
-                        gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
+                    ) and x >= 0 and x < width_sampling and y >= 0 and y < height_sampling:
+                        if color is not None:
+                            GL.sample_frame_buffer[y, x] = color
+                            #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
+                        else:
+                            # Interpolacao baricentrica
+                            alpha, beta, gamma = GL._barycentric([x1, y1, x2, y2, x3, y3], [x + 0.5, y + 0.5])
+                            rgb1, rgb2, rgb3 = vertexColors[i], vertexColors[i+1], vertexColors[i+2]
+
+                            # Interpolação para descobrir o Z do ponto
+                            z = 1/(alpha/z1 + beta/z2 + gamma/z3)
+                                                        
+                            r = (alpha * rgb1[0] / z1 + beta * rgb2[0] / z2 + gamma * rgb3[0] / z3) * z
+                            g = (alpha * rgb1[1] / z1 + beta * rgb2[1] / z2 + gamma * rgb3[1] / z3) * z
+                            b = (alpha * rgb1[2] / z1 + beta * rgb2[2] / z2 + gamma * rgb3[2] / z3) * z
+
+                            pointColor = [int(r * 255),
+                                        int(g * 255),
+                                        int(b * 255)]
+
+                            GL.sample_frame_buffer[y, x] = pointColor
+                            #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, pointColor)
+            
+        GL._drawPixels(width, height, sampling)
     
+
+    @staticmethod
+    def _drawPixels(width, height, sampling):
+        # Mapear de volta o frame_buffer super sampled para o menor
+        print(width, height)
+        print(GL.sample_frame_buffer.shape)
+        for x in range(width):
+            for y in range(height):
+                x_sampling = x * sampling
+                y_sampling = y * sampling
+
+                mean_color = np.mean(GL.sample_frame_buffer[
+                                                y_sampling:y_sampling+sampling,
+                                                x_sampling:x_sampling+sampling
+                                            ], axis=(0, 1))
+                
+                gpu.GPU.draw_pixel([x, y], gpu.GPU.RGB8, mean_color.astype(int))
+    
+
     @staticmethod
     def _inside(vertices, x, y):
         """Função auxiliar para verificar se um ponto está "dentro de um lado" do triângulo."""
@@ -201,9 +250,98 @@ class GL:
         return L(x, y, vertices[0], vertices[1], vertices[2], vertices[3]) and \
                 L(x, y, vertices[2], vertices[3], vertices[4], vertices[5]) and \
                 L(x, y, vertices[4], vertices[5], vertices[0], vertices[1])
+    
+
+    @staticmethod
+    def _barycentric(vertices, point):
+        """Função auxiliar para calcular as coordenadas baricentricas de um ponto em um triângulo."""
+        x1, y1, x2, y2, x3, y3 = vertices
+        x, y = point
+
+        A1 = (x*(y2 - y3) + x2*(y3 - y) + x3*(y - y2)) / 2
+        A2 = (x1*(y - y3) + x*(y3 - y1) + x3*(y1 - y)) / 2
+        A3 = (x1*(y2 - y) + x2*(y - y1) + x*(y1 - y2)) / 2
+        Atotal = A1 + A2 + A3
+
+        alpha = A1 / Atotal
+        beta = A2 / Atotal
+        gamma = 1 - alpha - beta
+
+        return alpha, beta, gamma
+    
+
+    @staticmethod
+    def _drawTriangles3D(point, colors=None, colorPerVertex=False, vertexColors=None):
+        vertices = []
+        # Configs
+        width = GL.width
+        height = GL.height
+
+        # High-resolution framebuffer dimensions
+        high_res_width = width * GL.sampling
+        high_res_height = height * GL.sampling
+
+        # Para cada um dos triangulos
+        for i in range(0, len(point), 9):
+            # Separa os vertices
+            x1, y1, z1, x2, y2, z2, x3, y3, z3 = point[i:i+9]
+
+            triangle = np.array([
+                [x1, x2, x3],
+                [y1, y2, y3],
+                [z1, z2, z3],
+                [1, 1, 1]
+            ])
+
+            triangle = GL.perspective_matrix @ GL.viewpoint_matrix @ GL.transformation_stack[-1] @ triangle
+
+            # Extract z-values before applying the mapping matrix (i.e., in original 3D space)
+            z_values = triangle[2, :]
+
+            # Normalizando a coordenada homogenea
+            triangle = triangle / triangle[3, :]
+
+            # Mapping matrix to move to screen space
+            mapping_matrix = np.array([
+                [high_res_width / 2, 0, 0, high_res_width / 2],
+                [0, -high_res_height / 2, 0, high_res_height / 2],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]
+            ])
+
+            # Apply the mapping to screen space for the x and y coordinates
+            final_triangle = mapping_matrix @ triangle
+
+            # Append the (x, y, z) tuples with z
+            for j in range(3):
+                vertices.append((final_triangle[0, j], final_triangle[1, j], z_values[j]))
 
 
-        
+        GL._drawTriangles(vertices, colors, colorPerVertex, vertexColors)
+
+
+    @staticmethod
+    def triangleSet2D(vertices, colors):
+        """Função usada para renderizar TriangleSet2D."""
+        # https://www.web3d.org/specifications/X3Dv4/ISO-IEC19775-1v4-IS/Part01/components/geometry2D.html#TriangleSet2D
+        # Nessa função você receberá os vertices de um triângulo no parâmetro vertices,
+        # esses pontos são uma lista de pontos x, y sempre na ordem. Assim point[0] é o
+        # valor da coordenada x do primeiro ponto, point[1] o valor y do primeiro ponto.
+        # Já point[2] é a coordenada x do segundo ponto e assim por diante. Assuma que a
+        # quantidade de pontos é sempre multiplo de 3, ou seja, 6 valores ou 12 valores, etc.
+        # O parâmetro colors é um dicionário com os tipos cores possíveis, para o TriangleSet2D
+        # você pode assumir inicialmente o desenho das linhas com a cor emissiva (emissiveColor).
+
+        points = []
+        for i in range(0, len(vertices), 2):
+            x, y = vertices[i], vertices[i+1]
+            # Map the 2D coordinates to screen space
+            screen_x = x * GL.sampling
+            screen_y = y * GL.sampling
+            points.append([screen_x, screen_y, 0])
+
+        GL._drawTriangles(points, colors)
+            
 
     @staticmethod
     def triangleSet(point, colors):
@@ -222,37 +360,7 @@ class GL:
         # (emissiveColor), conforme implementar novos materias você deverá suportar outros
         # tipos de cores.
 
-        vertices = []
-
-        # Para cada um dos triangulos
-        for i in range(0, len(point), 9):
-            # Separa os vertices
-            x1, y1, z1, x2, y2, z2, x3, y3, z3 = point[i:i+9]
-
-            triangle = np.array([
-                [x1, x2, x3],
-                [y1, y2, y3],
-                [z1, z2, z3],
-                [1, 1, 1]
-            ])
-
-            triangle = GL.perspective_matrix @ GL.viewpoint_matrix @ GL.transformation_stack[-1] @ triangle
-
-            # Normalizando a coordenada homogenea
-            triangle = triangle / triangle[3, :]
-
-            mapping_matrix = np.array([
-                [GL.width/2, 0, 0, GL.width/2],
-                [0, -GL.height/2, 0, GL.height/2],
-                [0, 0, 1, 0],
-                [0, 0, 0 ,1]
-            ])
-
-            final_triangle = mapping_matrix @ triangle
-
-            vertices.extend(final_triangle[0:2,:].T.flatten())
-        
-        GL.triangleSet2D(vertices, colors)
+        GL._drawTriangles3D(point, colors)
 
         
 
@@ -262,6 +370,10 @@ class GL:
         # Na função de viewpoint você receberá a posição, orientação e campo de visão da
         # câmera virtual. Use esses dados para poder calcular e criar a matriz de projeção
         # perspectiva para poder aplicar nos pontos dos objetos geométricos.
+
+        # Configs
+        width = GL.width * GL.sampling
+        height = GL.height * GL.sampling
 
         # Calculating the camera matrices
         ax, ay, az, theta = orientation
@@ -276,9 +388,9 @@ class GL:
         GL.viewpoint_matrix = R @ T
 
         # Calculating the perspective matrix
-        fov_y = 2 * np.arctan(np.tan(fieldOfView/2) * GL.height/np.sqrt(GL.height**2 + GL.width**2))
+        fov_y = 2 * np.arctan(np.tan(fieldOfView/2) * height/np.sqrt(height**2 + width**2))
 
-        aspect = GL.width / GL.height
+        aspect = width / height
         top = GL.near * np.tan(fov_y)
         right = top * aspect
 
@@ -387,7 +499,8 @@ class GL:
                 else:
                     vertices.extend(strip_points[j:j + 9])
 
-        GL.triangleSet(vertices, colors)
+        GL._drawTriangles3D(vertices, colors)
+
 
     @staticmethod
     def indexedTriangleStripSet(point, index, colors):
@@ -425,8 +538,9 @@ class GL:
 
             vertices.extend(triangle)
         
-        GL.triangleSet(vertices, colors)  
+        GL._drawTriangles3D(vertices, colors)  
         
+
     @staticmethod
     def indexedFaceSet(coord, coordIndex, colorPerVertex, color, colorIndex,
                        texCoord, texCoordIndex, colors, current_texture):
@@ -452,7 +566,16 @@ class GL:
         # implementadado um método para a leitura de imagens.
 
         vertices = []
+        vertexColors = []
         v0 = coordIndex[0]
+
+        # Tem algum bug que alguns que não deveriam ser colorPerVertex estão mandando True mas sem lista de colors
+        if color is None: colorPerVertex = False
+
+        c0 = None
+        if colorPerVertex:
+            c0 = colorIndex[0]
+
         i = 1
         while i < len(coordIndex):
             # Add the coordintes of the three points
@@ -460,15 +583,23 @@ class GL:
             vertices.extend(coord[coordIndex[i]*3:coordIndex[i]*3+3])
             vertices.extend(coord[coordIndex[i+1]*3:coordIndex[i+1]*3+3])
 
+            if colorPerVertex:
+                vertexColors.append(color[c0*3:c0*3+3])
+                vertexColors.append(color[colorIndex[i]*3:colorIndex[i]*3+3])
+                vertexColors.append(color[colorIndex[i+1]*3:colorIndex[i+1]*3+3])
+
             if coordIndex[i+2] == -1:
                 i += 3
                 if i >= len(coordIndex):
                     break
                 v0 = coordIndex[i]
-            else:
-                i += 1
+                if colorPerVertex:
+                    c0 = colorIndex[i]
+            
+            i += 1
 
-        GL.triangleSet(vertices, colors)
+        GL._drawTriangles3D(vertices, colors, colorPerVertex, vertexColors)
+
 
     @staticmethod
     def box(size, colors):
