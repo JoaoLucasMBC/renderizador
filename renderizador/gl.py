@@ -15,6 +15,7 @@ import time         # Para operações com tempo
 import gpu          # Simula os recursos de uma GPU
 import math         # Funções matemáticas
 import numpy as np  # Biblioteca do Numpy
+from PIL import Image
 
 class GL:
     """Classe que representa a biblioteca gráfica (Graphics Library)."""
@@ -165,7 +166,12 @@ class GL:
 
 
     @staticmethod
-    def _drawTriangles(points, colors=None, colorPerVertex=False, vertexColors=None):
+    def _drawTriangles(
+                    points, colors=None,
+                    colorPerVertex=False, vertexColors=None,
+                    texPerVertex=False, vertexTex=None, texture=None
+                ):
+        
         # Configs
         width = GL.width
         height = GL.height
@@ -208,10 +214,7 @@ class GL:
 
                             last_color = np.array(GL.sample_frame_buffer[y, x]) * transparency
 
-                            if color is not None:
-                                GL.sample_frame_buffer[y, x] = color * (1 - transparency) + last_color
-                                #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
-                            else:
+                            if colorPerVertex:
                                 rgb1, rgb2, rgb3 = vertexColors[i], vertexColors[i+1], vertexColors[i+2]
                                                             
                                 r = (alpha * rgb1[0] / z1 + beta * rgb2[0] / z2 + gamma * rgb3[0] / z3) * z
@@ -223,7 +226,20 @@ class GL:
                                             int(b * 255)])
 
                                 GL.sample_frame_buffer[y, x] = pointColor * (1 - transparency) + last_color
-                                #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, pointColor)
+                            elif texPerVertex:
+                                uv1, uv2, uv3 = vertexTex[i], vertexTex[i+1], vertexTex[i+2]
+
+                                u = (alpha * uv1[0]/z1 + beta * uv2[0]/z2 + gamma * uv3[0]/z3) * z
+                                v = 1 - (alpha * uv1[1]/z1 + beta * uv2[1]/z2 + gamma * uv3[1]/z3) * z
+
+                                tex_x = int(u * texture.shape[1])
+                                tex_y = int(v * texture.shape[0])
+
+                                pointTex = texture[tex_x, tex_y]
+
+                                GL.sample_frame_buffer[y, x] = pointTex * (1 - transparency) + last_color
+                            else:
+                                GL.sample_frame_buffer[y, x] = color * (1 - transparency) + last_color
             
         GL._drawPixels(width, height, sampling)
     
@@ -231,8 +247,6 @@ class GL:
     @staticmethod
     def _drawPixels(width, height, sampling):
         # Mapear de volta o frame_buffer super sampled para o menor
-        print(width, height)
-        print(GL.sample_frame_buffer.shape)
         for x in range(width):
             for y in range(height):
                 x_sampling = x * sampling
@@ -279,7 +293,12 @@ class GL:
     
 
     @staticmethod
-    def _drawTriangles3D(point, colors=None, colorPerVertex=False, vertexColors=None):
+    def _drawTriangles3D(
+                        point, colors=None,
+                        colorPerVertex=False, vertexColors=None,
+                        texPerVertex=False, vertexTex=None, texture=None
+                    ):
+        
         vertices = []
         # Configs
         width = GL.width
@@ -325,7 +344,9 @@ class GL:
                 vertices.append((final_triangle[0, j], final_triangle[1, j], z_values[j]))
 
 
-        GL._drawTriangles(vertices, colors, colorPerVertex, vertexColors)
+        GL._drawTriangles(vertices, colors,
+                          colorPerVertex, vertexColors,
+                          texPerVertex, vertexTex, texture)
 
 
     @staticmethod
@@ -572,17 +593,26 @@ class GL:
         # textura para o poligono, para isso, use as coordenadas de textura e depois aplique a
         # cor da textura conforme a posição do mapeamento. Dentro da classe GPU já está
         # implementadado um método para a leitura de imagens.
+        print(texCoord, texCoordIndex, current_texture)
 
         vertices = []
         vertexColors = []
+        vertexTex = []
         v0 = coordIndex[0]
 
         # Tem algum bug que alguns que não deveriam ser colorPerVertex estão mandando True mas sem lista de colors
         if color is None: colorPerVertex = False
+        texPerVertex = texCoord is not None
 
         c0 = None
         if colorPerVertex:
             c0 = colorIndex[0]
+        
+        t0 = None
+        texture = None
+        if texPerVertex:
+            t0 = texCoordIndex[0]
+            texture = gpu.GPU.load_texture(current_texture[0])[:, :, :3] # Removing the alpha channel
 
         i = 1
         while i < len(coordIndex):
@@ -595,6 +625,11 @@ class GL:
                 vertexColors.append(color[c0*3:c0*3+3])
                 vertexColors.append(color[colorIndex[i]*3:colorIndex[i]*3+3])
                 vertexColors.append(color[colorIndex[i+1]*3:colorIndex[i+1]*3+3])
+            
+            if texPerVertex:
+                vertexTex.append(texCoord[t0*2:t0*2+2])
+                vertexTex.append(texCoord[texCoordIndex[i]*2:texCoordIndex[i]*2+2])
+                vertexTex.append(texCoord[texCoordIndex[i+1]*2:texCoordIndex[i+1]*2+2])
 
             if coordIndex[i+2] == -1:
                 i += 3
@@ -603,10 +638,15 @@ class GL:
                 v0 = coordIndex[i]
                 if colorPerVertex:
                     c0 = colorIndex[i]
+                if texPerVertex:
+                    t0 = texCoordIndex[i]
             
             i += 1
-
-        GL._drawTriangles3D(vertices, colors, colorPerVertex, vertexColors)
+        print(texture)
+        print(texture.shape)
+        GL._drawTriangles3D(vertices, colors,
+                            colorPerVertex, vertexColors,
+                            texPerVertex, vertexTex, texture)
 
 
     @staticmethod
