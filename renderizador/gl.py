@@ -6,9 +6,9 @@
 """
 Biblioteca Gráfica / Graphics Library.
 
-Desenvolvido por: <SEU NOME AQUI>
+Desenvolvido por: <JOÃO LUCAS CADORNIGA>
 Disciplina: Computação Gráfica
-Data: <DATA DE INÍCIO DA IMPLEMENTAÇÃO>
+Data: <10/08/2024>
 """
 
 import time         # Para operações com tempo
@@ -16,6 +16,8 @@ import gpu          # Simula os recursos de uma GPU
 import math         # Funções matemáticas
 import numpy as np  # Biblioteca do Numpy
 from PIL import Image
+
+from texture import TextureHandler
 
 class GL:
     """Classe que representa a biblioteca gráfica (Graphics Library)."""
@@ -235,7 +237,8 @@ class GL:
                                 tex_x = int(u * texture.shape[1])
                                 tex_y = int(v * texture.shape[0])
 
-                                pointTex = texture[tex_x, tex_y]
+                                # Bilinear filtering
+                                pointTex = TextureHandler._bilinearFilter(tex_x, tex_y, texture)
 
                                 GL.sample_frame_buffer[y, x] = pointTex * (1 - transparency) + last_color
                             else:
