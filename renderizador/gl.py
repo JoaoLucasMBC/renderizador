@@ -174,7 +174,7 @@ class GL:
         height_sampling = height * sampling
 
         if not colorPerVertex:
-            color = [int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))]
+            color = np.array([int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))])
         else:
             color = None
 
@@ -203,8 +203,13 @@ class GL:
 
                         if GL.z_buffer[y, x] > z:
                             GL.z_buffer[y, x] = z
+
+                            transparency = float(colors.get('transparency', 1))
+
+                            last_color = np.array(GL.sample_frame_buffer[y, x]) * transparency
+
                             if color is not None:
-                                GL.sample_frame_buffer[y, x] = color
+                                GL.sample_frame_buffer[y, x] = color * (1 - transparency) + last_color
                                 #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, color)
                             else:
                                 rgb1, rgb2, rgb3 = vertexColors[i], vertexColors[i+1], vertexColors[i+2]
@@ -213,11 +218,11 @@ class GL:
                                 g = (alpha * rgb1[1] / z1 + beta * rgb2[1] / z2 + gamma * rgb3[1] / z3) * z
                                 b = (alpha * rgb1[2] / z1 + beta * rgb2[2] / z2 + gamma * rgb3[2] / z3) * z
 
-                                pointColor = [int(r * 255),
+                                pointColor = np.array([int(r * 255),
                                             int(g * 255),
-                                            int(b * 255)]
+                                            int(b * 255)])
 
-                                GL.sample_frame_buffer[y, x] = pointColor
+                                GL.sample_frame_buffer[y, x] = pointColor * (1 - transparency) + last_color
                                 #gpu.GPU.draw_pixel([int(x), int(y)], gpu.GPU.RGB8, pointColor)
             
         GL._drawPixels(width, height, sampling)
