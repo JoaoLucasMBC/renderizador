@@ -185,6 +185,9 @@ class GL:
             color = np.array([int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))])
         else:
             color = None
+        
+        if texPerVertex:
+            TextureHandler.generate_mipmaps(texture)
 
         for i in range(0, len(points), 3):
             # Separa os vertices
@@ -231,14 +234,21 @@ class GL:
                             elif texPerVertex:
                                 uv1, uv2, uv3 = vertexTex[i], vertexTex[i+1], vertexTex[i+2]
 
-                                u = (alpha * uv1[0]/z1 + beta * uv2[0]/z2 + gamma * uv3[0]/z3) * z
-                                v = 1 - (alpha * uv1[1]/z1 + beta * uv2[1]/z2 + gamma * uv3[1]/z3) * z
+                                u, v = TextureHandler.calculate_uv(uv1, uv2, uv3, z1, z2, z3, z, alpha, beta, gamma)
 
-                                tex_x = int(u * texture.shape[1])
-                                tex_y = int(v * texture.shape[0])
+                                y_up = y - 1
+                                x_right = x + 1
 
-                                # Bilinear filtering
-                                pointTex = TextureHandler._bilinearFilter(tex_x, tex_y, texture)
+                                a_up, b_up, g_up = GL._barycentric([x1, y1, x2, y2, x3, y3], [x + 0.5, y_up + 0.5])
+                                z_up = 1/(a_up/z1 + b_up/z2 + g_up/z3)
+
+                                a_right, b_right, g_right = GL._barycentric([x1, y1, x2, y2, x3, y3], [x_right + 0.5, y + 0.5])
+                                z_right = 1/(a_right/z1 + b_right/z2 + g_right/z3)
+
+                                u_up, v_up = TextureHandler.calculate_uv(uv1, uv2, uv3, z1, z2, z3, z_up, a_up, b_up, g_up)
+                                u_right, v_right = TextureHandler.calculate_uv(uv1, uv2, uv3, z1, z2, z3, z_right, a_right, b_right, g_right)
+
+                                pointTex = TextureHandler.get_texture(u, v, u_up, v_up, u_right, v_right)
 
                                 GL.sample_frame_buffer[y, x] = pointTex * (1 - transparency) + last_color
                             else:
@@ -596,7 +606,6 @@ class GL:
         # textura para o poligono, para isso, use as coordenadas de textura e depois aplique a
         # cor da textura conforme a posição do mapeamento. Dentro da classe GPU já está
         # implementadado um método para a leitura de imagens.
-        print(texCoord, texCoordIndex, current_texture)
 
         vertices = []
         vertexColors = []
@@ -645,8 +654,7 @@ class GL:
                     t0 = texCoordIndex[i]
             
             i += 1
-        print(texture)
-        print(texture.shape)
+        
         GL._drawTriangles3D(vertices, colors,
                             colorPerVertex, vertexColors,
                             texPerVertex, vertexTex, texture)

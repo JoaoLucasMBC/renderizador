@@ -3,10 +3,64 @@ import numpy as np
 
 class TextureHandler:
 
+    mipmaps = []
+
+    @staticmethod
+    def get_texture(
+        u, v, u_up, v_up, u_right, v_right
+    ):
+        #Config
+        mipmaps = TextureHandler.mipmaps
+
+        # Calculate the partial derivatives
+        du_dx = u_right - u
+        dv_dx = v_right - v
+
+        du_dy = u_up - u
+        dv_dy = v_up - v
+
+        L = max([
+            np.sqrt(du_dx**2 + dv_dx**2),
+            np.sqrt(du_dy**2 + dv_dy**2)
+        ])
+
+        D = np.log2(L)
+
+        # Floor and fractional part of D
+        D_floor = int(np.floor(D))
+        D_frac = D - D_floor  # Fractional part for interpolation
+
+        # Ensure valid mipmap level
+        D_floor = np.clip(D_floor, 0, len(mipmaps) - 1)
+        D_ceil = np.clip(D_floor + 1, 0, len(mipmaps) - 1)
+
+        # Sample both mipmap levels
+        tex_x = u * mipmaps[D_floor].shape[1]
+        tex_y = v * mipmaps[D_floor].shape[0]
+        sample_D = TextureHandler._bilinearFilter(tex_x, tex_y, mipmaps[D_floor])
+
+        tex_x_ceil = u * mipmaps[D_ceil].shape[1]
+        tex_y_ceil = v * mipmaps[D_ceil].shape[0]
+        sample_D_plus_1 = TextureHandler._bilinearFilter(tex_x_ceil, tex_y_ceil, mipmaps[D_ceil])
+
+        # Perform linear interpolation between the two mipmap levels
+        return (1 - D_frac) * sample_D + D_frac * sample_D_plus_1
+
+    @staticmethod
+    def calculate_uv(
+        uv1, uv2, uv3,
+        z1, z2, z3, z,
+        alpha, beta, gamma
+    ):
+        u = (alpha * uv1[0]/z1 + beta * uv2[0]/z2 + gamma * uv3[0]/z3) * z
+        v = 1 - (alpha * uv1[1]/z1 + beta * uv2[1]/z2 + gamma * uv3[1]/z3) * z
+
+        return u,v
+
     @staticmethod
     def _bilinearFilter(tex_x, tex_y, texture):
-        x0 = tex_x
-        y0 = tex_y
+        x0 = int(np.floor(tex_x))
+        y0 = int(np.floor(tex_y))
         x1 = min(x0 + 1, texture.shape[1] - 1)
         y1 = min(y0 + 1, texture.shape[0] - 1)
 
@@ -45,4 +99,4 @@ class TextureHandler:
             mipmaps.append(new_level)
             current_level = new_level
 
-        return mipmaps
+        TextureHandler.mipmaps = mipmaps
