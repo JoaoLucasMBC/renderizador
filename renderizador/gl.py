@@ -584,8 +584,8 @@ class GL:
         
 
     @staticmethod
-    def indexedFaceSet(coord, coordIndex, colorPerVertex, color, colorIndex,
-                       texCoord, texCoordIndex, colors, current_texture):
+    def indexedFaceSet(coord, coordIndex, colorPerVertex=False, color=None, colorIndex=None,
+                       texCoord=None, texCoordIndex=None, colors=None, current_texture=None):
         """Função usada para renderizar IndexedFaceSet."""
         # https://www.web3d.org/specifications/X3Dv4/ISO-IEC19775-1v4-IS/Part01/components/geometry3D.html#IndexedFaceSet
         # A função indexedFaceSet é usada para desenhar malhas de triângulos. Ela funciona de
@@ -671,12 +671,25 @@ class GL:
         # essa caixa você vai provavelmente querer tesselar ela em triângulos, para isso
         # encontre os vértices e defina os triângulos.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Box : size = {0}".format(size)) # imprime no terminal pontos
-        print("Box : colors = {0}".format(colors)) # imprime no terminal as cores
+        size_x, size_y, size_z = size
 
-        # Exemplo de desenho de um pixel branco na coordenada 10, 10
-        gpu.GPU.draw_pixel([10, 10], gpu.GPU.RGB8, [255, 255, 255])  # altera pixel
+        coord = []
+
+        for cx in [1, -1]:
+            for cy in [1, -1]:
+                for cz in [1, -1]:
+                    coord.extend([size_x/2 * cx, size_y/2 * cy, size_z/2 * cz])
+
+        coordIndex = [
+            5, 4, 0, 1, -1,
+            5, 7, 6, 4, -1,
+            4, 6, 2, 0, -1,
+            0, 2, 3, 1, -1,
+            1, 3, 7, 5, -1,
+            7, 3, 2, 6, -1
+        ]
+
+        GL.indexedFaceSet(coord=coord, coordIndex=coordIndex, colors=colors)
 
     @staticmethod
     def sphere(radius, colors):

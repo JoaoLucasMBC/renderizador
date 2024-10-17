@@ -94,7 +94,7 @@ class TextureHandler:
             for y in range(new_height):
                 for x in range(new_width):
                     # Average the 4 texels from the previous mipmap level
-                    new_level[y, x] = np.mean(current_level[2*y:2*y + 2, 2*x:2*x + 2], axis=(0, 1))
+                    new_level[x, y] = np.mean(current_level[2*x:2*x + 2, 2*y:2*y + 2], axis=(0, 1))
 
             mipmaps.append(new_level)
             current_level = new_level
