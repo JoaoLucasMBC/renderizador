@@ -26,7 +26,9 @@ class GL:
     height = 600  # altura da tela
     near = 0.01   # plano de corte próximo
     far = 1000    # plano de corte distante
-    sampling = 4
+    sampling = 2
+
+    rad_step = 12
 
     @staticmethod
     def setup(width, height, near=0.01, far=1000):
@@ -619,11 +621,15 @@ class GL:
 
         c0 = None
         if colorPerVertex:
+            if not colorIndex:
+                colorIndex = coordIndex
             c0 = colorIndex[0]
         
         t0 = None
         texture = None
         if texPerVertex:
+            if not texCoordIndex:
+                texCoordIndex = coordIndex
             t0 = texCoordIndex[0]
             texture = gpu.GPU.load_texture(current_texture[0])[:, :, :3] # Removing the alpha channel
 
@@ -702,6 +708,54 @@ class GL:
         # precisar tesselar ela em triângulos, para isso encontre os vértices e defina
         # os triângulos.
 
+        points = []
+
+        # Definir o passo vertical (APENAS 180°)
+        vertical_step = math.pi / GL.rad_step
+        v_angle = 0
+
+        prev_height = radius
+        prev_radius = 0
+
+        # Loop vertical para saber a altura dos circulos
+        while v_angle <= math.pi:
+            # Definir o passo horizontal de acordo com o comprimento da circunferência?
+            horizontal_step = 2 * vertical_step
+            h_angle = 0
+            
+            height = math.cos(v_angle) * radius
+            curr_radius = math.sin(v_angle) * radius
+
+            prev_x_top, prev_z_top = prev_radius * math.cos(h_angle), prev_radius * math.sin(h_angle)
+            prev_x_bottom, prev_z_bottom = curr_radius * math.cos(h_angle), curr_radius * math.sin(h_angle)
+
+            h_angle += horizontal_step
+
+            # Loop para fazer o mesmo processo do cilindro
+            while h_angle <= 2*math.pi + horizontal_step: # NOT SURE WHY HAD TO AD
+                x_top, z_top = prev_radius * math.cos(h_angle), prev_radius * math.sin(h_angle)
+                x_bottom, z_bottom = curr_radius * math.cos(h_angle), curr_radius * math.sin(h_angle)
+
+                points.extend([x_bottom, height, z_bottom])
+                points.extend([prev_x_bottom, height, prev_z_bottom])
+                points.extend([prev_x_top, prev_height, prev_z_top])
+
+                points.extend([prev_x_top, prev_height, prev_z_top])
+                points.extend([x_top, prev_height, z_top])
+                points.extend([x_bottom, height, z_bottom])
+
+                prev_x_top, prev_z_top = x_top, z_top
+                prev_x_bottom, prev_z_bottom = x_bottom, z_bottom
+
+                h_angle += horizontal_step
+            
+            prev_height = height
+            prev_radius = curr_radius
+
+            v_angle += vertical_step
+            
+        GL._drawTriangles3D(point=points, colors=colors)
+
         # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
         print("Sphere : radius = {0}".format(radius)) # imprime no terminal o raio da esfera
         print("Sphere : colors = {0}".format(colors)) # imprime no terminal as cores
@@ -717,10 +771,36 @@ class GL:
         # Para desenha esse cone você vai precisar tesselar ele em triângulos, para isso
         # encontre os vértices e defina os triângulos.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Cone : bottomRadius = {0}".format(bottomRadius)) # imprime no terminal o raio da base do cone
-        print("Cone : height = {0}".format(height)) # imprime no terminal a altura do cone
-        print("Cone : colors = {0}".format(colors)) # imprime no terminal as cores
+        points = []
+        half_height = height/2
+
+        # Pega o ponto do topo
+        top = [0, half_height, 0]
+
+        # Define o passo (em rad) do circulo da base
+        rad_step = 2 * math.pi/GL.rad_step
+        angle = 0
+
+        prev_x = bottomRadius * math.cos(angle)
+        prev_z = bottomRadius * math.sin(angle)
+
+        angle += rad_step
+
+        # Gira em sentido anti horário conectando triangulos
+        while angle <= 2 *math.pi:
+            x = bottomRadius * math.cos(angle)
+            z = bottomRadius * math.sin(angle)
+
+            points.extend(([x, -half_height, z]))
+            points.extend([prev_x, -half_height, prev_z])
+            points.extend(top)
+
+            prev_x, prev_z = x, z
+            angle += rad_step
+
+        # Passa para o drawTriangles3d (lista de vertices solta)
+        GL._drawTriangles3D(point=points, colors=colors)
+
 
     @staticmethod
     def cylinder(radius, height, colors):
@@ -733,10 +813,35 @@ class GL:
         # Para desenha esse cilindro você vai precisar tesselar ele em triângulos, para isso
         # encontre os vértices e defina os triângulos.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Cylinder : radius = {0}".format(radius)) # imprime no terminal o raio do cilindro
-        print("Cylinder : height = {0}".format(height)) # imprime no terminal a altura do cilindro
-        print("Cylinder : colors = {0}".format(colors)) # imprime no terminal as cores
+        points = []
+
+        angle = 0
+        rad_step = 2 * math.pi/GL.rad_step
+
+        prev_x = radius * math.cos(angle)
+        prev_z = radius * math.sin(angle)
+
+        half_height = height/2
+
+         # Gira em sentido anti horário conectando triangulos
+        while angle <= 2 *math.pi:
+            x = radius * math.cos(angle)
+            z = radius * math.sin(angle)
+
+            points.extend(([x, -half_height, z]))
+            points.extend([prev_x, -half_height, prev_z])
+            points.extend([prev_x, half_height, prev_z])
+
+            points.extend([prev_x, half_height, prev_z])
+            points.extend(([x, half_height, z]))
+            points.extend([x, -half_height, z])
+
+            prev_x, prev_z = x, z
+            angle += rad_step
+
+        # Passa para o drawTriangles3d (lista de vertices solta)
+        GL._drawTriangles3D(point=points, colors=colors)
+
 
     @staticmethod
     def navigationInfo(headlight):
