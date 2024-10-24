@@ -18,6 +18,7 @@ import numpy as np  # Biblioteca do Numpy
 from PIL import Image
 
 from texture import TextureHandler
+from lighting import LightingHandler
 
 class GL:
     """Classe que representa a biblioteca gráfica (Graphics Library)."""
@@ -26,7 +27,7 @@ class GL:
     height = 600  # altura da tela
     near = 0.01   # plano de corte próximo
     far = 1000    # plano de corte distante
-    sampling = 2
+    sampling = 1
 
     rad_step = 12
 
@@ -47,6 +48,14 @@ class GL:
         
         GL.z_buffer = np.full((GL.height * GL.sampling, GL.width * GL.sampling), np.inf)
 
+        GL.light_sources = []
+
+    @staticmethod
+    def clear_buffer():
+        """Limpar o buffer de cor e o buffer de profundidade."""
+        GL.sample_frame_buffer.fill(0)
+        GL.z_buffer.fill(np.inf)
+        
     @staticmethod
     def polypoint2D(point, colors):
         """Função usada para renderizar Polypoint2D."""
@@ -184,9 +193,9 @@ class GL:
         height_sampling = height * sampling
 
         if not colorPerVertex:
-            color = np.array([int(255 * colors['emissiveColor'][i]) for i in range(len(colors['emissiveColor']))])
+            emissive_color = np.array([colors['emissiveColor'][i] for i in range(len(colors['emissiveColor']))])
         else:
-            color = None
+            emissive_color = None
         
         if texPerVertex:
             TextureHandler.generate_mipmaps(texture)
@@ -194,9 +203,9 @@ class GL:
         for i in range(0, len(points), 3):
             # Separa os vertices
             p1, p2, p3 = points[i:i+3]
-            x1, y1, z1 = p1
-            x2, y2, z2 = p2
-            x3, y3, z3 = p3
+            x1, y1, z1, n1 = p1
+            x2, y2, z2, n2 = p2
+            x3, y3, z3, n3 = p3
             
             # Cria a otimizacao da caixa ao redor dos vertices 
             for x in range(int(min([x1, x2, x3])), int(max([x1, x2, x3])) + 1):
@@ -211,8 +220,23 @@ class GL:
                         # Interpolacao baricentrica
                         alpha, beta, gamma = GL._barycentric([x1, y1, x2, y2, x3, y3], [x + 0.5, y + 0.5])
 
+                        # Interpolacao das normais
+                        nx = alpha * n1[0] + beta * n2[0] + gamma * n3[0]
+                        ny = alpha * n1[1] + beta * n2[1] + gamma * n3[1]
+                        nz = alpha * n1[2] + beta * n2[2] + gamma * n3[2]
+
+                        interpolated_normal = np.array([nx, ny, nz])
+                        if alpha == 0 and beta == 0 and gamma == 0:
+                            interpolated_normal = np.array([0, 1, 0])  # Set to a default normal, or skip this pixel
+                        else:
+                            # Normalize the normal if alpha, beta, gamma are valid
+                            interpolated_normal = interpolated_normal / np.linalg.norm(interpolated_normal)
+
                         # Interpolação para descobrir o Z do ponto
-                        z = 1/(alpha/z1 + beta/z2 + gamma/z3)
+                        if alpha == 0 and beta == 0 and gamma == 0:
+                            z = float('inf')
+                        else:
+                            z = 1 / (alpha / z1 + beta / z2 + gamma / z3)
 
                         if GL.z_buffer[y, x] > z:
                             GL.z_buffer[y, x] = z
@@ -232,7 +256,6 @@ class GL:
                                             int(g * 255),
                                             int(b * 255)])
 
-                                GL.sample_frame_buffer[y, x] = pointColor * (1 - transparency) + last_color
                             elif texPerVertex:
                                 uv1, uv2, uv3 = vertexTex[i], vertexTex[i+1], vertexTex[i+2]
 
@@ -250,12 +273,29 @@ class GL:
                                 u_up, v_up = TextureHandler.calculate_uv(uv1, uv2, uv3, z1, z2, z3, z_up, a_up, b_up, g_up)
                                 u_right, v_right = TextureHandler.calculate_uv(uv1, uv2, uv3, z1, z2, z3, z_right, a_right, b_right, g_right)
 
-                                pointTex = TextureHandler.get_texture(u, v, u_up, v_up, u_right, v_right)
-
-                                GL.sample_frame_buffer[y, x] = pointTex * (1 - transparency) + last_color
+                                pointTex = TextureHandler.get_texture(u, v, u_up, v_up, u_right, v_right)    
+                            
+                            # Determine the base color based on whether colorPerVertex or texPerVertex is true
+                            if colorPerVertex:
+                                base_color = pointColor  # Color from vertex interpolation
+                            elif texPerVertex:
+                                base_color = pointTex  # Color from texture mapping
                             else:
-                                GL.sample_frame_buffer[y, x] = color * (1 - transparency) + last_color
-            
+                                base_color = emissive_color  # Fallback to emissive color if no vertex or texture colors
+
+                            # Compute lighting based on the base color and other parameters
+                            lighting_color = LightingHandler.compute_lighting(GL.light_sources, interpolated_normal, colors, np.array([x, y, z]))
+
+                            # Combine the base color with the lighting
+                            final_color = base_color + lighting_color
+
+                            # Make the normal the final color for now
+                            #final_color = (interpolated_normal + 1) / 2
+                            final_color = final_color * 255
+
+                            # Apply transparency and write the final color to the sample buffer
+                            GL.sample_frame_buffer[y, x] = final_color * (1 - transparency) + last_color
+
         GL._drawPixels(width, height, sampling)
     
 
@@ -300,9 +340,12 @@ class GL:
         A3 = (x1*(y2 - y) + x2*(y - y1) + x*(y1 - y2)) / 2
         Atotal = A1 + A2 + A3
 
-        alpha = A1 / Atotal
-        beta = A2 / Atotal
-        gamma = 1 - alpha - beta
+        if np.abs(Atotal) < 1e-6:  # Handle near-zero triangle area
+            alpha, beta, gamma = 0, 0, 0  # Set default values to avoid NaN
+        else:
+            alpha = A1 / Atotal
+            beta = A2 / Atotal
+            gamma = (1 - alpha - beta)
 
         return alpha, beta, gamma
     
@@ -315,6 +358,9 @@ class GL:
                     ):
         
         vertices = []
+
+        normals = LightingHandler.compute_vertices_normal(point)
+
         # Configs
         width = GL.width
         height = GL.height
@@ -327,6 +373,7 @@ class GL:
         for i in range(0, len(point), 9):
             # Separa os vertices
             x1, y1, z1, x2, y2, z2, x3, y3, z3 = point[i:i+9]
+            n1, n2, n3 = normals[tuple(point[i:i+3])], normals[tuple(point[i+3:i+6])], normals[tuple(point[i+6:i+9])]
 
             triangle = np.array([
                 [x1, x2, x3],
@@ -354,9 +401,21 @@ class GL:
             # Apply the mapping to screen space for the x and y coordinates
             final_triangle = mapping_matrix @ triangle
 
+            # Create the matrix with the normals with an extra dim
+            curr_normals = np.array([n1, n2, n3]).T
+            curr_normals = np.vstack([curr_normals, np.zeros(3)])
+
+            # APLICAR O INVERSO DA TRANSPOSTA DAS TRANSFORMAÇÕES????
+            transformed_normals = GL.transformation_stack[-1] @ curr_normals
+            transformed_normals = GL.viewpoint_matrix @ transformed_normals
+
+            # Convert back to 3D by discarding the extra dimension
+            transformed_normals = transformed_normals[:3, :]
+
             # Append the (x, y, z) tuples with z
             for j in range(3):
-                vertices.append((final_triangle[0, j], final_triangle[1, j], z_values[j]))
+                n = transformed_normals[:, j]
+                vertices.append((final_triangle[0, j], final_triangle[1, j], z_values[j], n / np.linalg.norm(n)))
 
 
         GL._drawTriangles(vertices, colors,
@@ -696,7 +755,9 @@ class GL:
             7, 3, 2, 6, -1
         ]
 
-        GL.indexedFaceSet(coord=coord, coordIndex=coordIndex, colors=colors)
+        # Actually call IndexedFaceSet for each face separately (Gambiarra dos crias para não ter smooth shading)
+        for i in range(0, len(coordIndex), 5):
+            GL.indexedFaceSet(coord=coord, coordIndex=coordIndex[i:i+5], colors=colors)
 
     @staticmethod
     def sphere(radius, colors):
@@ -732,7 +793,7 @@ class GL:
             h_angle += horizontal_step
 
             # Loop para fazer o mesmo processo do cilindro
-            while h_angle <= 2*math.pi + horizontal_step: # NOT SURE WHY HAD TO AD
+            while h_angle < 2 * math.pi:
                 x_top, z_top = prev_radius * math.cos(h_angle), prev_radius * math.sin(h_angle)
                 x_bottom, z_bottom = curr_radius * math.cos(h_angle), curr_radius * math.sin(h_angle)
 
@@ -748,6 +809,20 @@ class GL:
                 prev_x_bottom, prev_z_bottom = x_bottom, z_bottom
 
                 h_angle += horizontal_step
+
+            # Now, manually close the loop by adding the first point again:
+            x_top_first, z_top_first = prev_radius * math.cos(0), prev_radius * math.sin(0)
+            x_bottom_first, z_bottom_first = curr_radius * math.cos(0), curr_radius * math.sin(0)
+
+            # Closing the loop by connecting to the first point:
+            points.extend([x_bottom_first, height, z_bottom_first])
+            points.extend([prev_x_bottom, height, prev_z_bottom])
+            points.extend([prev_x_top, prev_height, prev_z_top])
+
+            points.extend([prev_x_top, prev_height, prev_z_top])
+            points.extend([x_top_first, prev_height, z_top_first])
+            points.extend([x_bottom_first, height, z_bottom_first])
+
             
             prev_height = height
             prev_radius = curr_radius
@@ -755,10 +830,7 @@ class GL:
             v_angle += vertical_step
             
         GL._drawTriangles3D(point=points, colors=colors)
-
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("Sphere : radius = {0}".format(radius)) # imprime no terminal o raio da esfera
-        print("Sphere : colors = {0}".format(colors)) # imprime no terminal as cores
+        
 
     @staticmethod
     def cone(bottomRadius, height, colors):
@@ -853,8 +925,13 @@ class GL:
         # A luz headlight deve ser direcional, ter intensidade = 1, cor = (1 1 1),
         # ambientIntensity = 0,0 e direção = (0 0 −1).
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("NavigationInfo : headlight = {0}".format(headlight)) # imprime no terminal
+        if headlight:
+            GL.light_sources.append({
+                "ambientIntensity": 0.0,
+                "color": [1, 1, 1],
+                "intensity": 1,
+                "direction": [0, 0, -1]
+            })
 
     @staticmethod
     def directionalLight(ambientIntensity, color, intensity, direction):
@@ -866,11 +943,12 @@ class GL:
         # que emana da fonte de luz no sistema de coordenadas local. A luz é emitida ao
         # longo de raios paralelos de uma distância infinita.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("DirectionalLight : ambientIntensity = {0}".format(ambientIntensity))
-        print("DirectionalLight : color = {0}".format(color)) # imprime no terminal
-        print("DirectionalLight : intensity = {0}".format(intensity)) # imprime no terminal
-        print("DirectionalLight : direction = {0}".format(direction)) # imprime no terminal
+        GL.light_sources.append({
+            "ambientIntensity": ambientIntensity,
+            "color": color,
+            "intensity": intensity,
+            "direction": direction
+        })
 
     @staticmethod
     def pointLight(ambientIntensity, color, intensity, location):
@@ -916,17 +994,11 @@ class GL:
         # tempo continua a execução no próximo ciclo. O ciclo de um nó TimeSensor dura
         # cycleInterval segundos. O valor de cycleInterval deve ser maior que zero.
 
-        # Deve retornar a fração de tempo passada em fraction_changed
-
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("TimeSensor : cycleInterval = {0}".format(cycleInterval)) # imprime no terminal
-        print("TimeSensor : loop = {0}".format(loop))
-
         # Esse método já está implementado para os alunos como exemplo
         epoch = time.time()  # time in seconds since the epoch as a floating point number.
         fraction_changed = (epoch % cycleInterval) / cycleInterval
 
-        return fraction_changed
+        return fraction_changed # Esse é o parâmetro t para a interpolação!!
 
     @staticmethod
     def splinePositionInterpolator(set_fraction, key, keyValue, closed):
@@ -939,17 +1011,66 @@ class GL:
         # quadros-chave no key. O campo closed especifica se o interpolador deve tratar a malha
         # como fechada, com uma transições da última chave para a primeira chave. Se os keyValues
         # na primeira e na última chave não forem idênticos, o campo closed será ignorado.
-
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("SplinePositionInterpolator : set_fraction = {0}".format(set_fraction))
-        print("SplinePositionInterpolator : key = {0}".format(key)) # imprime no terminal
-        print("SplinePositionInterpolator : keyValue = {0}".format(keyValue))
-        print("SplinePositionInterpolator : closed = {0}".format(closed))
-
-        # Abaixo está só um exemplo de como os dados podem ser calculados e transferidos
-        value_changed = [0.0, 0.0, 0.0]
+        GL.clear_buffer()
         
-        return value_changed
+        # ENCONTRA O P1 e o P2 (range)
+        idxP1 = 0
+        idxP2 = 1
+        for i in range(len(key)):
+            if key[i] > set_fraction:
+                idxP2 = i
+                if idxP2 == 0:
+                    idxP1 = len(key) - 1
+                else:
+                    idxP1 = i - 1
+                break
+
+        # PEGA O P0 E O P3 (leva em consideração se for CLOSED)
+        if closed and idxP2 == len(key) - 1:
+            idxP3 = 0
+        elif idxP2 == len(key) - 1:
+            idxP3 = idxP1
+        else: 
+            idxP3 = idxP2 + 1
+
+        if closed and idxP1 == 0:
+            idxP0 = len(key) - 1
+        elif idxP1 == 0:
+            idxP0 = idxP2
+        else:
+            idxP0 = idxP1 - 1
+
+        # SEPARA OS PONTOS
+        P0 = keyValue[idxP0*3:idxP0*3 + 3]
+        P1 = keyValue[idxP1*3:idxP1*3 + 3]
+        P2 = keyValue[idxP2*3:idxP2*3 + 3]
+        P3 = keyValue[idxP3*3:idxP3*3 + 3]
+
+        t = (set_fraction - key[idxP1]) / (key[idxP2] - key[idxP1])
+
+        # CALCULA AS MATRIZES DE CATMULL-ROM E HERMITE
+        C_MAT = np.array([
+            [-1/2, 3/2, -3/2, 1/2],
+            [1, -5/2, 2, -1/2],
+            [-1/2, 0, 1/2, 0],
+            [0, 1, 0, 0]
+        ])
+
+        T_MAT = np.array([[t**3, t**2, t, 1]])
+
+        # No x
+        X_MAT = np.array([P0[0], P1[0], P2[0], P3[0]]).reshape(4, 1)
+        final_x = T_MAT @ C_MAT @ X_MAT
+
+        # No y
+        Y_MAT = np.array([P0[1], P1[1], P2[1], P3[1]]).reshape(4, 1)
+        final_y = T_MAT @ C_MAT @ Y_MAT
+
+        # No z
+        Z_MAT = np.array([P0[2], P1[2], P2[2], P3[2]]).reshape(4, 1)
+        final_z = T_MAT @ C_MAT @ Z_MAT
+
+        return [final_x[0][0], final_y[0][0], final_z[0][0]]
 
     @staticmethod
     def orientationInterpolator(set_fraction, key, keyValue):
@@ -966,15 +1087,64 @@ class GL:
         # zeroa a um. O campo keyValue deve conter exatamente tantas rotações 3D quanto os
         # quadros-chave no key.
 
-        # O print abaixo é só para vocês verificarem o funcionamento, DEVE SER REMOVIDO.
-        print("OrientationInterpolator : set_fraction = {0}".format(set_fraction))
-        print("OrientationInterpolator : key = {0}".format(key)) # imprime no terminal
-        print("OrientationInterpolator : keyValue = {0}".format(keyValue))
+        GL.clear_buffer()
+        
+        # ENCONTRA O P1 e o P2 (range)
+        idxP1 = 0
+        idxP2 = 1
+        for i in range(len(key)):
+            if key[i] > set_fraction:
+                idxP2 = i
+                if idxP2 == 0:
+                    idxP1 = len(key) - 1
+                else:
+                    idxP1 = i - 1
+                break
 
-        # Abaixo está só um exemplo de como os dados podem ser calculados e transferidos
-        value_changed = [0, 0, 1, 0]
+        # PEGA O P0 E O P3 (leva em consideração se for CLOSED)
+        if idxP2 == len(key) - 1:
+            idxP3 = idxP1
+        else: 
+            idxP3 = idxP2 + 1
 
-        return value_changed
+        if idxP1 == 0:
+            idxP0 = idxP2
+        else:
+            idxP0 = idxP1 - 1
+
+        # SEPARA OS PONTOS
+        P0 = keyValue[idxP0*4:idxP0*4 + 4]
+        P1 = keyValue[idxP1*4:idxP1*4 + 4]
+        P2 = keyValue[idxP2*4:idxP2*4 + 4]
+        P3 = keyValue[idxP3*4:idxP3*4 + 4]
+
+        # CALCULA AS MATRIZES DE CATMULL-ROM E HERMITE
+        C_MAT = np.array([
+            [-1/2, 3/2, -3/2, 1/2],
+            [1, -5/2, 2, -1/2],
+            [-1/2, 0, 1/2, 0],
+            [0, 1, 0, 0]
+        ])
+
+        T_MAT = np.array([[set_fraction**3, set_fraction**2, set_fraction, 1]])
+
+        # No x
+        X_MAT = np.array([P0[0], P1[0], P2[0], P3[0]]).reshape(4, 1)
+        final_x = T_MAT @ C_MAT @ X_MAT
+
+        # No y
+        Y_MAT = np.array([P0[1], P1[1], P2[1], P3[1]]).reshape(4, 1)
+        final_y = T_MAT @ C_MAT @ Y_MAT
+
+        # No z
+        Z_MAT = np.array([P0[2], P1[2], P2[2], P3[2]]).reshape(4, 1)
+        final_z = T_MAT @ C_MAT @ Z_MAT
+
+        # No w
+        W_MAT = np.array([P0[3], P1[3], P2[3], P3[3]]).reshape(4, 1)
+        final_w = T_MAT @ C_MAT @ W_MAT
+
+        return [final_x[0][0], final_y[0][0], final_z[0][0], final_w[0][0]]
 
     # Para o futuro (Não para versão atual do projeto.)
     def vertex_shader(self, shader):
